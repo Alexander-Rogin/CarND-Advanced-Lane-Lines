@@ -9,9 +9,8 @@ class LaneFinder:
     def __init__(self):
         self.calibrate()
 
-    def processImage(self, path_to_image, quiet=True):
+    def processImage(self, img, quiet=True):
         self.quiet = quiet
-        img = mpimg.imread(path_to_image)
         undist = cv2.undistort(img, self.mtx, self.dist, None, self.mtx)
 
         grad_combined = self.getGradientImgCombined(undist)
@@ -339,15 +338,41 @@ class LaneFinder:
 
 
 laneFinder = LaneFinder()
-# result = laneFinder.processImage('test_images/test6.jpg', quiet=False)
+# img = mpimg.imread('test_images/test1.jpg')
+# result = laneFinder.processImage(img, quiet=False)
 
 # plt.imshow(result)
 # plt.show()
 
-video = cv2.VideoCapture('project_video.mp4')
-success = True
-while success:
-    success, image = video.read()
-    result = laneFinder.processImage('test_images/test6.jpg', quiet=False)
-    plt.imshow(result)
-    plt.show()
+from moviepy.editor import VideoFileClip
+
+
+# def process(img):
+#     laneFinder.processImage(img)
+
+
+clip1 = VideoFileClip('project_video.mp4')
+white_clip = clip1.fl_image(laneFinder.processImage)
+white_clip.write_videofile('output.mp4', audio=False)
+
+# video = cv2.VideoCapture('project_video.mp4')
+
+# # Define the codec and create VideoWriter object
+# fourcc = cv2.VideoWriter_fourcc(*'XVID')
+# out = cv2.VideoWriter('output.avi',fourcc, 20.0, (640,480))
+
+# while(video.isOpened()):
+#     ret, image = video.read()
+#     if ret:
+#         result = laneFinder.processImage(image)
+#         # plt.imshow(result)
+#         # plt.show()
+#         out.write(result)
+#         cv2.imshow('result',result)
+#         if cv2.waitKey(1) & 0xFF == ord('q'):
+#             break
+#     else:
+#         break
+
+# video.release()
+# out.release()
