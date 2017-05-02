@@ -6,7 +6,17 @@ import glob
 import os
 
 class LaneFinder:
-    def __init__(self):
+    path_to_mtx = 'mtx.npy'
+    path_to_dist = 'dist.npy'
+
+    def __init__(self, calibrate_anew=False):
+        if not calibrate_anew:
+            try:
+                self.mtx = np.load(self.path_to_mtx)
+                self.dist = np.load(self.path_to_dist)
+                return
+            except IOError:
+                pass
         self.calibrate()
 
     def processImage(self, img, quiet=True):
@@ -76,6 +86,8 @@ class LaneFinder:
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
         self.mtx = mtx
         self.dist = dist
+        np.save(self.path_to_mtx, mtx)
+        np.save(self.path_to_dist, dist)
 
 
 
@@ -96,8 +108,6 @@ class LaneFinder:
         return binary_output
 
 
-    # In[5]:
-
     def mag_thresh(self, undist, sobel_kernel=3, mag_thresh=(100, 200)):
         # Convert to grayscale
         gray = cv2.cvtColor(undist, cv2.COLOR_RGB2GRAY)
@@ -117,8 +127,6 @@ class LaneFinder:
         return binary_output
 
 
-    # In[6]:
-
     # Define a function to threshold an image for a given range and Sobel kernel
     def dir_threshold(self, img, sobel_kernel=3, thresh=(0, np.pi/2)):
         # Grayscale
@@ -135,8 +143,6 @@ class LaneFinder:
         # Return the binary image
         return binary_output
 
-
-    # In[7]:
 
     def getGradientImgCombined(self, undist):
         ksize = 3
@@ -179,8 +185,6 @@ class LaneFinder:
 
         return combined
 
-
-    # In[9]:
 
     def getWarped(self, img):
         img_size = (img.shape[1], img.shape[0])
@@ -338,41 +342,14 @@ class LaneFinder:
 
 
 laneFinder = LaneFinder()
-# img = mpimg.imread('test_images/test1.jpg')
-# result = laneFinder.processImage(img, quiet=False)
+img = mpimg.imread('test_images/test1.jpg')
+result = laneFinder.processImage(img, quiet=False)
 
-# plt.imshow(result)
-# plt.show()
-
-from moviepy.editor import VideoFileClip
+plt.imshow(result)
+plt.show()
 
 
-# def process(img):
-#     laneFinder.processImage(img)
-
-
-clip1 = VideoFileClip('project_video.mp4')
-white_clip = clip1.fl_image(laneFinder.processImage)
-white_clip.write_videofile('output.mp4', audio=False)
-
-# video = cv2.VideoCapture('project_video.mp4')
-
-# # Define the codec and create VideoWriter object
-# fourcc = cv2.VideoWriter_fourcc(*'XVID')
-# out = cv2.VideoWriter('output.avi',fourcc, 20.0, (640,480))
-
-# while(video.isOpened()):
-#     ret, image = video.read()
-#     if ret:
-#         result = laneFinder.processImage(image)
-#         # plt.imshow(result)
-#         # plt.show()
-#         out.write(result)
-#         cv2.imshow('result',result)
-#         if cv2.waitKey(1) & 0xFF == ord('q'):
-#             break
-#     else:
-#         break
-
-# video.release()
-# out.release()
+# from moviepy.editor import VideoFileClip
+# video = VideoFileClip('project_video.mp4')
+# processed_video = clip1.fl_image(laneFinder.processImage)
+# processed_video.write_videofile('output.mp4', audio=False)
