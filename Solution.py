@@ -5,11 +5,39 @@ import matplotlib.image as mpimg
 import glob
 import os
 
+# Define a class to receive the characteristics of each line detection
+class Line():
+    def __init__(self):
+        # was the line detected in the last iteration?
+        self.detected = False  
+        # x values of the last n fits of the line
+        self.recent_xfitted = [] 
+        #average x values of the fitted line over the last n iterations
+        self.bestx = None     
+        #polynomial coefficients averaged over the last n iterations
+        self.best_fit = None  
+        #polynomial coefficients for the most recent fit
+        self.current_fit = [np.array([False])]  
+        #radius of curvature of the line in some units
+        self.radius_of_curvature = None 
+        #distance in meters of vehicle center from the line
+        self.line_base_pos = None 
+        #difference in fit coefficients between last and new fits
+        self.diffs = np.array([0,0,0], dtype='float') 
+        #x values for detected line pixels
+        self.allx = None  
+        #y values for detected line pixels
+        self.ally = None
+
+
 class LaneFinder:
     path_to_mtx = 'mtx.npy'
     path_to_dist = 'dist.npy'
 
     def __init__(self, calibrate_anew=False):
+        self.left_line = Line()
+        self.right_line = Line()
+        
         if not calibrate_anew:
             try:
                 self.mtx = np.load(self.path_to_mtx)
@@ -208,9 +236,26 @@ class LaneFinder:
         # These will be the starting point for the left and right lines
         midpoint = np.int(histogram.shape[0]/2)
 
+        left_half = histogram[:midpoint]
+        right_half = histogram[midpoint:]
+
+        count = 50
+
+        l_tmp = left_half.argsort()[-count:][::-1]
+        r_tmp = right_half.argsort()[-count:][::-1] + midpoint
+        print(l_tmp)
+        print(r_tmp)
+
+        leftx_base = np.average(l_tmp)
+        rightx_base = np.average(r_tmp)
+
         # TODO: use several points
-        leftx_base = np.argmax(histogram[:midpoint])
-        rightx_base = np.argmax(histogram[midpoint:]) + midpoint
+        # leftx_base = np.argmax(histogram[:midpoint])
+        # rightx_base = np.argmax(histogram[midpoint:]) + midpoint
+
+
+        print(leftx_base)
+        print(rightx_base)
         return leftx_base, rightx_base
 
     def getPolynomials(self, leftx_base, rightx_base):
