@@ -56,19 +56,28 @@ class LaneFinder:
 
         grad_combined = self.getGradientImgCombined(undist)
 
-        color_combined = self.getColorCombined(undist, gray_thresh=(190, 255), r_thresh=(210, 255))
+        color_combined = self.getColorCombined(undist)
 
         # Combine the two binary thresholds
         combined_binary = np.zeros_like(grad_combined)
         combined_binary[(grad_combined == 1) | (color_combined == 1)] = 1
+        # combined_binary[(color_combined == 1)] = 1
+
+        plt.imshow(combined_binary, cmap='gray')
+        plt.show()
 
         if not self.quiet:
             mpimg.imsave(self.out_img_folder + 'binary.png', combined_binary, cmap='gray')
 
         self.getWarped(combined_binary)
+        plt.imshow(self.binary_warped, cmap='gray')
+        plt.show()
+        # exit()
         if not self.quiet:
-            mpimg.imsave(self.out_img_folder + 'birdseye_view.png', self.binary_warped, cmap='gray')
-        exit()
+            img_size = (undist.shape[1], undist.shape[0])
+            warped = cv2.warpPerspective(undist, self.M, img_size, flags=cv2.INTER_LINEAR)
+            mpimg.imsave(self.out_img_folder + 'birds-eye_view.png', warped, cmap='gray')
+            mpimg.imsave(self.out_img_folder + 'bird-seye_view_binary.png', self.binary_warped, cmap='gray')
 
         leftx_base, rightx_base = self.getLaneStartX()
 
@@ -188,16 +197,17 @@ class LaneFinder:
         direction = self.dir_threshold(undist, sobel_kernel=ksize, thresh=(0, np.pi/2))
 
         combined = np.zeros_like(direction)
-        combined[((gradx == 1) & (grady == 1)) | ((magn == 1) & (direction == 1))] = 1
+        # combined[((gradx == 1) & (grady == 1)) | ((magn == 1) & (direction == 1))] = 1
+        combined[((gradx == 1) & (grady == 1))] = 1
         return combined
 
-    def getColorCombined(self, undist,
-                         gray_thresh=(180, 255),
-                         r_thresh=(230, 255)):
-    #     gray = cv2.cvtColor(undist, cv2.COLOR_RGB2GRAY)
-    #     gray_binary = np.zeros_like(gray)
-    #     gray_binary[(gray > gray_thresh[0]) & (gray <= gray_thresh[1])] = 1
+    def getColorCombined(self, undist):
+        gray_thresh=(180, 255)
+        gray = cv2.cvtColor(undist, cv2.COLOR_RGB2GRAY)
+        gray_binary = np.zeros_like(gray)
+        gray_binary[(gray > gray_thresh[0]) & (gray <= gray_thresh[1])] = 1
 
+        r_thresh=(220, 255)
         R = undist[:,:,0]
         r_binary = np.zeros_like(R)
         r_binary[(R > r_thresh[0]) & (R <= r_thresh[1])] = 1
@@ -207,15 +217,14 @@ class LaneFinder:
         L = hls[:,:,1]
         S = hls[:,:,2]
 
-        thresh = (90, 255)
+        thresh = (100, 255)
         s_binary = np.zeros_like(S)
         s_binary[(S > thresh[0]) & (S <= thresh[1])] = 1
 
         combined = np.zeros_like(r_binary)
-    #     combined[((gray_binary == 1) | (r_binary == 1))] = 1
-    #     combined[((r_binary == 1) & (s_binary == 1))] = 1
-        combined[((s_binary == 1))] = 1
-    #     combined[((r_binary == 1))] = 1
+        combined[((s_binary == 1) & (r_binary == 1))] = 1
+        # combined[((r_binary == 1))] = 1
+        # combined[((s_binary == 1))] = 1
 
         return combined
 
@@ -223,20 +232,17 @@ class LaneFinder:
     def getWarped(self, img):
         img_size = (img.shape[1], img.shape[0])
 
-        src = np.float32([(590, 450), (690, 450), (1060, 690), (250, 690)])
+        src = np.float32([(590, 440), (690, 440), (1060, 690), (250, 690)])
         dst = np.float32([(250, 0), (1060, 0), (1060, 690), (250, 690)])
 
-        M = cv2.getPerspectiveTransform(src, dst)
+        self.M = cv2.getPerspectiveTransform(src, dst)
         self.Minv = cv2.getPerspectiveTransform(dst, src)
 
-        self.binary_warped = cv2.warpPerspective(img, M, img_size, flags=cv2.INTER_LINEAR)
+        self.binary_warped = cv2.warpPerspective(img, self.M, img_size, flags=cv2.INTER_LINEAR)
 
 
     def getLaneStartX(self):
-        histogram = np.sum(self.binary_warped[self.binary_warped.shape[0]//2:,:], axis=0)
-        # if not self.quiet:
-        #     plt.plot(histogram)
-        #     plt.show()
+        histogram = np.sum(self.binary_warped[self.binary_warped.shape[0]//3:,:], axis=0)
 
         # Find the peak of the left and right halves of the histogram
         # These will be the starting point for the left and right lines
@@ -245,28 +251,19 @@ class LaneFinder:
         left_half = histogram[:midpoint]
         right_half = histogram[midpoint:]
 
-        count = 50
+        count = 30
 
         l_tmp = left_half.argsort()[-count:][::-1]
         r_tmp = right_half.argsort()[-count:][::-1] + midpoint
-        print(l_tmp)
-        print(r_tmp)
 
         leftx_base = np.average(l_tmp)
         rightx_base = np.average(r_tmp)
 
-        # TODO: use several points
-        # leftx_base = np.argmax(histogram[:midpoint])
-        # rightx_base = np.argmax(histogram[midpoint:]) + midpoint
-
-
-        print(leftx_base)
-        print(rightx_base)
         return leftx_base, rightx_base
 
     def getPolynomials(self, leftx_base, rightx_base):
         # Choose the number of sliding windows
-        nwindows = 9
+        nwindows = 20
         # Set height of windows
         window_height = np.int(self.binary_warped.shape[0]/nwindows)
         # Identify the x and y positions of all nonzero pixels in the image
@@ -279,12 +276,14 @@ class LaneFinder:
         # Set the width of the windows +/- margin
         self.margin = 100
         # Set minimum number of pixels found to recenter window
-        minpix = 100
+        minpix = 1000
         # Create empty lists to receive left and right lane pixel indices
         self.left_lane_inds = []
         self.right_lane_inds = []
 
         # Step through the windows one by one
+        left_deltas = []
+        right_deltas = []
         for window in range(nwindows):
             # Identify window boundaries in x and y (and right and left)
             win_y_low = self.binary_warped.shape[0] - (window+1)*window_height
@@ -293,17 +292,26 @@ class LaneFinder:
             win_xleft_high = leftx_current + self.margin
             win_xright_low = rightx_current - self.margin
             win_xright_high = rightx_current + self.margin
+
             # Identify the nonzero pixels in x and y within the window
             good_left_inds = ((self.nonzeroy >= win_y_low) & (self.nonzeroy < win_y_high) & (self.nonzerox >= win_xleft_low) & (self.nonzerox < win_xleft_high)).nonzero()[0]
             good_right_inds = ((self.nonzeroy >= win_y_low) & (self.nonzeroy < win_y_high) & (self.nonzerox >= win_xright_low) & (self.nonzerox < win_xright_high)).nonzero()[0]
-            # Append these indices to the lists
-            self.left_lane_inds.append(good_left_inds)
-            self.right_lane_inds.append(good_right_inds)
-            # If you found > minpix pixels, recenter next window on their mean position
+            # self.left_lane_inds.append(good_left_inds)
+            # self.right_lane_inds.append(good_right_inds)
+            # If you found > minpix pixels, recenter next window on their mean position and append these indices to the lists
             if len(good_left_inds) > minpix:
-                leftx_current = np.int(np.mean(self.nonzerox[good_left_inds]))
+                delta = np.int(np.mean(self.nonzerox[good_left_inds])) - leftx_current
+                left_deltas.append(delta)
+                self.left_lane_inds.append(good_left_inds)
+            if len(left_deltas) > 0:
+                leftx_current += np.mean(left_deltas)
+
             if len(good_right_inds) > minpix:
-                rightx_current = np.int(np.mean(self.nonzerox[good_right_inds]))
+                delta = np.int(np.mean(self.nonzerox[good_right_inds])) - rightx_current
+                right_deltas.append(delta)
+                self.right_lane_inds.append(good_right_inds)
+            if len(right_deltas) > 0:
+                rightx_current += np.mean(right_deltas)
 
         # Concatenate the arrays of indices
         self.left_lane_inds = np.concatenate(self.left_lane_inds)
@@ -393,7 +401,7 @@ class LaneFinder:
 
 
 laneFinder = LaneFinder()
-img = mpimg.imread('test_images/test1.jpg')
+img = mpimg.imread('test_images/test5.jpg')
 result = laneFinder.processImage(img, quiet=False)
 
 plt.imshow(result)
