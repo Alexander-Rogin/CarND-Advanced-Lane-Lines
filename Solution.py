@@ -33,6 +33,7 @@ class Line():
 class LaneFinder:
     path_to_mtx = 'mtx.npy'
     path_to_dist = 'dist.npy'
+    out_img_folder = 'output_images/'
 
     def __init__(self, calibrate_anew=False):
         self.left_line = Line()
@@ -50,6 +51,8 @@ class LaneFinder:
     def processImage(self, img, quiet=True):
         self.quiet = quiet
         undist = cv2.undistort(img, self.mtx, self.dist, None, self.mtx)
+        if not self.quiet:
+            cv2.imwrite(self.out_img_folder + 'undist.jpg', cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
         grad_combined = self.getGradientImgCombined(undist)
 
@@ -59,7 +62,13 @@ class LaneFinder:
         combined_binary = np.zeros_like(grad_combined)
         combined_binary[(grad_combined == 1) | (color_combined == 1)] = 1
 
+        if not self.quiet:
+            mpimg.imsave(self.out_img_folder + 'binary.png', combined_binary, cmap='gray')
+
         self.getWarped(combined_binary)
+        if not self.quiet:
+            mpimg.imsave(self.out_img_folder + 'birdseye_view.png', self.binary_warped, cmap='gray')
+        exit()
 
         leftx_base, rightx_base = self.getLaneStartX()
 
@@ -103,20 +112,17 @@ class LaneFinder:
 
             # If found, draw corners
             if ret == True:
-                # if not self.quiet:
-                    # Draw and display the corners
-    #               cv2.drawChessboardCorners(img, (nx, ny), corners, ret)
-    #               plt.imshow(img)
-    #               plt.show()
                 imgpoints.append(corners)
                 objpoints.append(objp)
 
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
         self.mtx = mtx
         self.dist = dist
+
+        undist = cv2.undistort(cv2.imread(images[0]), self.mtx, self.dist, None, self.mtx)
+        cv2.imwrite(self.out_img_folder + 'calibration_undist.jpg', undist)
         np.save(self.path_to_mtx, mtx)
         np.save(self.path_to_dist, dist)
-
 
 
     def getThresholdedSobel(self, undist, orient='x', thresh_min=20, thresh_max=100):
