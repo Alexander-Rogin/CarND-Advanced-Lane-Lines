@@ -33,6 +33,8 @@ class Line():
 class LaneFinder:
     path_to_mtx = 'mtx.npy'
     path_to_dist = 'dist.npy'
+    left_fit = None
+    right_fit = None
 
     def __init__(self, calibrate_anew=False):
         self.left_line = Line()
@@ -243,19 +245,10 @@ class LaneFinder:
 
         l_tmp = left_half.argsort()[-count:][::-1]
         r_tmp = right_half.argsort()[-count:][::-1] + midpoint
-        print(l_tmp)
-        print(r_tmp)
 
         leftx_base = np.average(l_tmp)
         rightx_base = np.average(r_tmp)
 
-        # TODO: use several points
-        # leftx_base = np.argmax(histogram[:midpoint])
-        # rightx_base = np.argmax(histogram[midpoint:]) + midpoint
-
-
-        print(leftx_base)
-        print(rightx_base)
         return leftx_base, rightx_base
 
     def getPolynomials(self, leftx_base, rightx_base):
@@ -313,11 +306,33 @@ class LaneFinder:
         left_fit = np.polyfit(self.lefty, self.leftx, 2)
         right_fit = np.polyfit(self.righty, self.rightx, 2)
 
+        # print(left_fit)
+        # print(right_fit)
+        # print()
+
+        self.left_fit = self.sanity_check(left_fit, self.left_fit)
+        self.right_fit = self.sanity_check(right_fit, self.right_fit)
+
         # if not self.quiet:
             # plt.imshow(out_img)
             # plt.show()
-        return left_fit, right_fit
+        return self.left_fit, self.right_fit
 
+    def sanity_check(self, new, old):
+        if old == None:
+            old = new
+            return old
+
+        deltas = [100, 100, 10]
+        for i in range(len(deltas)):
+            big = max(abs(new[i]), abs(old[i]))
+            small = min(abs(new[i]), abs(old[i]))
+            if big / small > deltas[i]:
+                # print('SANITY: i=' + str(i) + ', old=' + str(old) + ', new=' + str(new))
+                # print()
+                return old
+        old = new
+        return old
 
     def getPlottingValues(self, left_fit, right_fit):
         # Generate x and y values for plotting
@@ -387,14 +402,14 @@ class LaneFinder:
 
 
 laneFinder = LaneFinder()
-img = mpimg.imread('test_images/test1.jpg')
-result = laneFinder.processImage(img, quiet=False)
+# img = mpimg.imread('test_images/test1.jpg')
+# result = laneFinder.processImage(img, quiet=False)
 
-plt.imshow(result)
-plt.show()
+# plt.imshow(result)
+# plt.show()
 
 
-# from moviepy.editor import VideoFileClip
-# video = VideoFileClip('project_video.mp4')
-# processed_video = clip1.fl_image(laneFinder.processImage)
-# processed_video.write_videofile('output.mp4', audio=False)
+from moviepy.editor import VideoFileClip
+video = VideoFileClip('project_video.mp4')
+processed_video = video.fl_image(laneFinder.processImage)
+processed_video.write_videofile('output.mp4', audio=False)
