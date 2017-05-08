@@ -5,41 +5,14 @@ import matplotlib.image as mpimg
 import glob
 import os
 
-# Define a class to receive the characteristics of each line detection
-class Line():
-    def __init__(self):
-        # was the line detected in the last iteration?
-        self.detected = False  
-        # x values of the last n fits of the line
-        self.recent_xfitted = [] 
-        #average x values of the fitted line over the last n iterations
-        self.bestx = None     
-        #polynomial coefficients averaged over the last n iterations
-        self.best_fit = None  
-        #polynomial coefficients for the most recent fit
-        self.current_fit = [np.array([False])]  
-        #radius of curvature of the line in some units
-        self.radius_of_curvature = None 
-        #distance in meters of vehicle center from the line
-        self.line_base_pos = None 
-        #difference in fit coefficients between last and new fits
-        self.diffs = np.array([0,0,0], dtype='float') 
-        #x values for detected line pixels
-        self.allx = None  
-        #y values for detected line pixels
-        self.ally = None
-
-
 class LaneFinder:
     path_to_mtx = 'mtx.npy'
     path_to_dist = 'dist.npy'
     left_fit = None
     right_fit = None
+    out_img_folder = 'output_images/'
 
     def __init__(self, calibrate_anew=False):
-        self.left_line = Line()
-        self.right_line = Line()
-        
         if not calibrate_anew:
             try:
                 self.mtx = np.load(self.path_to_mtx)
@@ -52,6 +25,8 @@ class LaneFinder:
     def processImage(self, img, quiet=True):
         self.quiet = quiet
         undist = cv2.undistort(img, self.mtx, self.dist, None, self.mtx)
+        if not self.quiet:
+            cv2.imwrite(self.out_img_folder + 'undist.jpg', cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
         grad_combined = self.getGradientImgCombined(undist)
 
@@ -60,8 +35,15 @@ class LaneFinder:
         # Combine the two binary thresholds
         combined_binary = np.zeros_like(grad_combined)
         combined_binary[(grad_combined == 1) | (color_combined == 1)] = 1
+        if not self.quiet:
+            mpimg.imsave(self.out_img_folder + 'binary.png', combined_binary, cmap='gray')
 
         self.getWarped(combined_binary)
+        if not self.quiet:
+            img_size = (undist.shape[1], undist.shape[0])
+            warped = cv2.warpPerspective(undist, self.M, img_size, flags=cv2.INTER_LINEAR)
+            mpimg.imsave(self.out_img_folder + 'birds-eye_view.png', warped, cmap='gray')
+            mpimg.imsave(self.out_img_folder + 'birds-eye_view_binary.png', self.binary_warped, cmap='gray')
 
         leftx_base, rightx_base = self.getLaneStartX()
 
@@ -73,11 +55,24 @@ class LaneFinder:
             self.visualizeLineSearch()
 
         left_curverad, right_curverad = self.getCurvatureMeters()
+        # if not self.quiet:
+            # print(left_curverad, 'm', right_curverad, 'm')
+        curv = (left_curverad + right_curverad) / 2
+        center_offset = self.getCenterOffsetMeters(img)
+        # print (center_offset)
+
+        out_img = self.getOutputImage(img, undist)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        out_img = cv2.putText(out_img, "Curvature: " + str(int(curv)) + 'm',(20,40), font, 1, (1.0,1.0,1.0), 2, cv2.LINE_AA)
+        if center_offset < 0:
+            pos = 'right'
+        else:
+            pos = 'left'
+        out_img = cv2.putText(out_img, str(abs(round(center_offset, 2))) + 'm to the ' + pos + ' of the center',(20,80), font, 1, (1.0,1.0,1.0), 2, cv2.LINE_AA)
+        # plt.imshow(result)
         if not self.quiet:
-            print(left_curverad, 'm', right_curverad, 'm')
-
-        return self.getOutputImage(img, undist)
-
+            mpimg.imsave(self.out_img_folder + 'result.png', out_img)
+        return out_img
 
     def calibrate(self):
         pathToImages = 'camera_cal/'
@@ -116,6 +111,9 @@ class LaneFinder:
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
         self.mtx = mtx
         self.dist = dist
+
+        undist = cv2.undistort(cv2.imread(images[0]), self.mtx, self.dist, None, self.mtx)
+        cv2.imwrite(self.out_img_folder + 'calibration_undist.jpg', undist)
         np.save(self.path_to_mtx, mtx)
         np.save(self.path_to_dist, dist)
 
@@ -222,10 +220,10 @@ class LaneFinder:
         src = np.float32([(590, 450), (690, 450), (1060, 690), (250, 690)])
         dst = np.float32([(250, 0), (1060, 0), (1060, 690), (250, 690)])
 
-        M = cv2.getPerspectiveTransform(src, dst)
+        self.M = cv2.getPerspectiveTransform(src, dst)
         self.Minv = cv2.getPerspectiveTransform(dst, src)
 
-        self.binary_warped = cv2.warpPerspective(img, M, img_size, flags=cv2.INTER_LINEAR)
+        self.binary_warped = cv2.warpPerspective(img, self.M, img_size, flags=cv2.INTER_LINEAR)
 
 
     def getLaneStartX(self):
@@ -361,12 +359,14 @@ class LaneFinder:
         cv2.fillPoly(window_img, np.int_([left_line_pts]), (0,255, 0))
         cv2.fillPoly(window_img, np.int_([right_line_pts]), (0,255, 0))
         result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
-        plt.imshow(result)
-        plt.plot(self.left_fitx, self.ploty, color='yellow')
-        plt.plot(self.right_fitx, self.ploty, color='yellow')
-        plt.xlim(0, 1280)
-        plt.ylim(720, 0)
-        plt.show()
+
+        mpimg.imsave(self.out_img_folder + 'color_fit_lines.png', result)
+        # plt.imshow(result)
+        # plt.plot(self.left_fitx, self.ploty, color='yellow')
+        # plt.plot(self.right_fitx, self.ploty, color='yellow')
+        # plt.xlim(0, 1280)
+        # plt.ylim(720, 0)
+        # plt.show()
 
     def getCurvatureMeters(self):
         # Define conversions in x and y from pixels space to meters
@@ -381,6 +381,11 @@ class LaneFinder:
         left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
         right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
         return left_curverad, right_curverad
+
+    def getCenterOffsetMeters(self, img):
+        xm_per_pix = 3.7/700
+        lane_center = (self.left_fitx[-1] + self.right_fitx[-1])/2
+        return ((lane_center - img.shape[1] / 2) * xm_per_pix)
 
     def getOutputImage(self, img, undist):
         # Create an image to draw the lines on
@@ -402,14 +407,14 @@ class LaneFinder:
 
 
 laneFinder = LaneFinder()
-# img = mpimg.imread('test_images/test1.jpg')
-# result = laneFinder.processImage(img, quiet=False)
+img = mpimg.imread('test_images/test3.jpg')
+result = laneFinder.processImage(img, quiet=False)
 
-# plt.imshow(result)
-# plt.show()
+plt.imshow(result)
+plt.show()
 
 
-from moviepy.editor import VideoFileClip
-video = VideoFileClip('project_video.mp4')
-processed_video = video.fl_image(laneFinder.processImage)
-processed_video.write_videofile('output.mp4', audio=False)
+# from moviepy.editor import VideoFileClip
+# video = VideoFileClip('project_video.mp4')
+# processed_video = video.fl_image(laneFinder.processImage)
+# processed_video.write_videofile('output.mp4', audio=False)
