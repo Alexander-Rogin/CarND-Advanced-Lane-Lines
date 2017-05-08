@@ -34,6 +34,8 @@ class LaneFinder:
     path_to_mtx = 'mtx.npy'
     path_to_dist = 'dist.npy'
     out_img_folder = 'output_images/'
+    left_fit = None
+    right_fit = None
 
     def __init__(self, calibrate_anew=False):
         self.left_line = Line()
@@ -63,16 +65,10 @@ class LaneFinder:
         combined_binary[(grad_combined == 1) | (color_combined == 1)] = 1
         # combined_binary[(color_combined == 1)] = 1
 
-        plt.imshow(combined_binary, cmap='gray')
-        plt.show()
-
         if not self.quiet:
             mpimg.imsave(self.out_img_folder + 'binary.png', combined_binary, cmap='gray')
 
         self.getWarped(combined_binary)
-        plt.imshow(self.binary_warped, cmap='gray')
-        plt.show()
-        # exit()
         if not self.quiet:
             img_size = (undist.shape[1], undist.shape[0])
             warped = cv2.warpPerspective(undist, self.M, img_size, flags=cv2.INTER_LINEAR)
@@ -81,18 +77,24 @@ class LaneFinder:
 
         leftx_base, rightx_base = self.getLaneStartX()
 
-        left_fit, right_fit = self.getPolynomials(leftx_base, rightx_base)
+        self.getPolynomials(leftx_base, rightx_base)
 
-        self.getPlottingValues(left_fit, right_fit)
+        self.getPlottingValues()
 
-        if not self.quiet:
-            self.visualizeLineSearch()
+        # self.visualizeLineSearch()
 
         left_curverad, right_curverad = self.getCurvatureMeters()
-        if not self.quiet:
-            print(left_curverad, 'm', right_curverad, 'm')
+        center_offset = self.getCenterOffsetMeters(img)
+        # print(center_offset)
 
-        return self.getOutputImage(img, undist)
+        out_img = self.getOutputImage(img, undist)
+        curv = (left_curverad + right_curverad) / 2
+        # font = cv2.FONT_HERSHEY_SIMPLEX
+        # cv2.putText(out_img,'Curvature: ' + str(curv) + 'm',(0,0), font, 4,(255,255,255),2,cv2.LINE_AA)
+
+        if not self.quiet:
+           mpimg.imsave(self.out_img_folder + 'result.png', out_img)
+        return out_img
 
 
     def calibrate(self):
@@ -232,8 +234,10 @@ class LaneFinder:
     def getWarped(self, img):
         img_size = (img.shape[1], img.shape[0])
 
-        src = np.float32([(590, 440), (690, 440), (1060, 690), (250, 690)])
-        dst = np.float32([(250, 0), (1060, 0), (1060, 690), (250, 690)])
+        # src = np.float32([(590, 440), (690, 440), (1060, 690), (250, 690)])
+        # dst = np.float32([(250, 0), (1060, 0), (1060, 690), (250, 690)])
+        src = np.float32([(590, 440), (690, 440), (1060, 720), (250, 720)])
+        dst = np.float32([(250, 0), (1060, 0), (1060, 720), (250, 720)])
 
         self.M = cv2.getPerspectiveTransform(src, dst)
         self.Minv = cv2.getPerspectiveTransform(dst, src)
@@ -263,9 +267,9 @@ class LaneFinder:
 
     def getPolynomials(self, leftx_base, rightx_base):
         # Choose the number of sliding windows
-        nwindows = 20
+        nwindows = 10
         # Set height of windows
-        window_height = np.int(self.binary_warped.shape[0]/nwindows)
+        window_height = np.int(2 * self.binary_warped.shape[0]/ (3 * nwindows))
         # Identify the x and y positions of all nonzero pixels in the image
         nonzero = self.binary_warped.nonzero()
         self.nonzeroy = np.array(nonzero[0])
@@ -327,17 +331,18 @@ class LaneFinder:
         left_fit = np.polyfit(self.lefty, self.leftx, 2)
         right_fit = np.polyfit(self.righty, self.rightx, 2)
 
-        # if not self.quiet:
-            # plt.imshow(out_img)
-            # plt.show()
-        return left_fit, right_fit
+        alfa = 0.1
+        if self.left_fit == None or (abs(self.left_fit[0] - left_fit[0]) < alfa and abs(self.left_fit[1] - left_fit[1]) < alfa):
+            self.left_fit = left_fit
+        if self.right_fit == None or (abs(self.right_fit[0] - right_fit[0]) < alfa and abs(self.right_fit[1] - right_fit[1]) < alfa):
+            self.right_fit = right_fit
 
 
-    def getPlottingValues(self, left_fit, right_fit):
+    def getPlottingValues(self):
         # Generate x and y values for plotting
         self.ploty = np.linspace(0, self.binary_warped.shape[0]-1, self.binary_warped.shape[0] )
-        self.left_fitx = left_fit[0]*self.ploty**2 + left_fit[1]*self.ploty + left_fit[2]
-        self.right_fitx = right_fit[0]*self.ploty**2 + right_fit[1]*self.ploty + right_fit[2]
+        self.left_fitx = self.left_fit[0]*self.ploty**2 + self.left_fit[1]*self.ploty + self.left_fit[2]
+        self.right_fitx = self.right_fit[0]*self.ploty**2 + self.right_fit[1]*self.ploty + self.right_fit[2]
 
     def visualizeLineSearch(self):
         # Create an image to draw on and an image to show the selection window
@@ -376,10 +381,17 @@ class LaneFinder:
         # Fit new polynomials to x,y in world space
         left_fit_cr = np.polyfit(self.lefty*ym_per_pix, self.leftx*xm_per_pix, 2)
         right_fit_cr = np.polyfit(self.righty*ym_per_pix, self.rightx*xm_per_pix, 2)
+
         # Calculate the new radii of curvature
         left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
         right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
         return left_curverad, right_curverad
+
+    def getCenterOffsetMeters(self, img):
+        xm_per_pix = 3.7/700
+        lane_center = (self.left_fitx[-1] + self.right_fitx[-1])/2
+        return ((lane_center - img.shape[1] / 2) * xm_per_pix)
+
 
     def getOutputImage(self, img, undist):
         # Create an image to draw the lines on
@@ -401,14 +413,14 @@ class LaneFinder:
 
 
 laneFinder = LaneFinder()
-img = mpimg.imread('test_images/test5.jpg')
-result = laneFinder.processImage(img, quiet=False)
+# img = mpimg.imread('test_images/test1.jpg')
+# result = laneFinder.processImage(img, quiet=False)
 
-plt.imshow(result)
-plt.show()
+# plt.imshow(result)
+# plt.show()
 
 
-# from moviepy.editor import VideoFileClip
-# video = VideoFileClip('project_video.mp4')
-# processed_video = clip1.fl_image(laneFinder.processImage)
-# processed_video.write_videofile('output.mp4', audio=False)
+from moviepy.editor import VideoFileClip
+video = VideoFileClip('project_video.mp4')
+processed_video = video.fl_image(laneFinder.processImage)
+processed_video.write_videofile('output.mp4', audio=False)
